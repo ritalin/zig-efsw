@@ -10,7 +10,7 @@ pub fn main() !void {
     const root_dir = try std.fs.cwd().realpathAlloc(allocator, "./zig-out");
     defer allocator.free(root_dir);
 
-    _ = try watcher.addWatch(
+    _ = watcher.addWatch(
         root_dir,
         .{
             .on_add = notifyAdd,
@@ -19,7 +19,10 @@ pub fn main() !void {
             .on_renamed = notifyMoved,
             .recursive = true,
         }
-    );
+    )
+    catch {
+        std.debug.print("{s}", .{efsw.Watcher.LastError.get()});
+    };
 
     watcher.start();
 

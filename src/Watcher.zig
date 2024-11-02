@@ -251,3 +251,13 @@ const WatchContext = struct {
         context.allocator.destroy(context);
     }
 };
+
+pub const LastError = struct {
+    pub fn get() []const u8 {
+        return std.mem.span(c.efsw_getlasterror());
+    }
+
+    pub fn clear() void {
+        c.efsw_clearlasterror();
+    }
+};
