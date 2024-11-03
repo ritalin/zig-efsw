@@ -5,9 +5,17 @@ pub const c = @cImport({
     @cInclude("efsw/efsw.h");
 });
 
+pub const Action = enum(c_uint) {
+    Add = c.EFSW_ADD,
+    Delete = c.EFSW_DELETE,
+    Modified = c.EFSW_MODIFIED,
+    Renamed = c.EFSW_MOVED,
+};
+
 pub const WatchId = c.efsw_watchid;
-pub const WatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) void;
-pub const MovedWatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) void;
+pub const WatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) anyerror!void;
+pub const MovedWatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) anyerror!void;
+pub const ErrorCallback = *const fn (watcher: *Self, watch_id: WatchId, action_tag: Action, error_tag: anyerror) anyerror!void;
 
 arena: *std.heap.ArenaAllocator,
 instance: c.efsw_watcher,
@@ -55,6 +63,7 @@ pub const AddWatchOptions = struct {
     on_delete: ?WatchCallback = null,
     on_modified: ?WatchCallback = null,
     on_renamed: ?MovedWatchCallback = null,
+    on_error: ?ErrorCallback = null,
     recursive: bool = false,
     win_buffer_size: ?c_int = null,
     win_notify_filter: ?c_int = null,
@@ -78,12 +87,13 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
         .on_delete = options.on_delete,
         .on_modified = options.on_modified,
         .on_renamed = options.on_renamed,
+        .on_error = options.on_error,
     };
     errdefer allocator.destroy(context);
     errdefer context.deinit();
 
     const id = try self.addWatchInternal(
-        context.dir_sentinel, notify_changed, context, 
+        context.dir_sentinel, notifyChanged, context, 
         .{
             .recursive = options.recursive,
             .win_buffer_size = options.win_buffer_size,
@@ -94,49 +104,6 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
     try self.watch_contexts.put(id, context);
 
     return id;
-}
-
-fn notify_changed(
-    instance: c.efsw_watcher,
-    watchid: WatchId,
-    dir_sentinel: [*c]const u8,
-    filename_sentinel: [*c]const u8,
-    action: c_uint,
-    old_filename_sentinel: [*c]const u8,
-    param: ?*anyopaque) callconv(.C) void 
-{
-    _ = instance;
-    if (param == null) return;
-
-    const context: *WatchContext = @ptrCast(@alignCast(param.?));
-
-    const dir_name = std.mem.span(dir_sentinel);
-    const basename = std.mem.span(filename_sentinel);
-
-    switch (action) {
-        c.EFSW_ADD => {
-            if (context.on_add) |f| {
-                f(context.watcher, watchid, dir_name, basename, context.user_data);
-            }
-        },
-        c.EFSW_DELETE => {
-            if (context.on_delete) |f| {
-                f(context.watcher, watchid, dir_name, basename, context.user_data);
-            }
-        },
-        c.EFSW_MODIFIED => {
-            if (context.on_modified) |f| {
-                f(context.watcher, watchid, dir_name, basename, context.user_data);
-            }
-        },
-        c.EFSW_MOVED => {
-            if (context.on_renamed) |f| {
-                const old_name = std.mem.span(old_filename_sentinel);
-                f(context.watcher, watchid, dir_name, basename, old_name, context.user_data);
-            }
-        },
-        else => {},
-    }
 }
 
 const Options = struct {
@@ -244,6 +211,7 @@ const WatchContext = struct {
     on_delete: ?WatchCallback,
     on_modified: ?WatchCallback,
     on_renamed: ?MovedWatchCallback,
+    on_error: ?ErrorCallback,
 
     pub fn deinit(context: *WatchContext) void {
         context.allocator.free(context.dir);
@@ -251,6 +219,72 @@ const WatchContext = struct {
         context.allocator.destroy(context);
     }
 };
+
+fn notifyChanged(
+    instance: c.efsw_watcher,
+    watch_id: WatchId,
+    dir_sentinel: [*c]const u8,
+    filename_sentinel: [*c]const u8,
+    action: c_uint,
+    old_filename_sentinel: [*c]const u8,
+    user_data: ?*anyopaque) callconv(.C) void 
+{
+    if (user_data == null) return;
+    _ = instance;
+
+    const context: *WatchContext = @ptrCast(@alignCast(user_data.?));
+    const action_tag: Action = @enumFromInt(action);
+
+    notifyChangedInternal(
+        context, watch_id, action_tag,
+        dir_sentinel, filename_sentinel, old_filename_sentinel, 
+    )
+    catch |err| {
+        handle_error: {
+            if (context.on_error) |f| {
+                f(context.watcher, watch_id, action_tag, err) catch break:handle_error;
+
+                return;
+            }
+        }
+
+        @panic("Failed to handle error in watch callback");
+    };
+}
+
+fn notifyChangedInternal(
+    context: *WatchContext, watch_id: WatchId, action_tag: Action, 
+    dir_sentinel: [*c]const u8,
+    filename_sentinel: [*c]const u8,
+    old_filename_sentinel: [*c]const u8) anyerror!void
+{
+    const dir_name = std.mem.span(dir_sentinel);
+    const basename = std.mem.span(filename_sentinel);
+
+    switch (action_tag) {
+        .Add => {
+            if (context.on_add) |f| {
+                try f(context.watcher, watch_id, dir_name, basename, context.user_data);
+            }
+        },
+        .Delete => {
+            if (context.on_delete) |f| {
+                try f(context.watcher, watch_id, dir_name, basename, context.user_data);
+            }
+        },
+        .Modified => {
+            if (context.on_modified) |f| {
+                try f(context.watcher, watch_id, dir_name, basename, context.user_data);
+            }
+        },
+        .Renamed => {
+            if (context.on_renamed) |f| {
+                const old_name = std.mem.span(old_filename_sentinel);
+                try f(context.watcher, watch_id, dir_name, basename, old_name, context.user_data);
+            }
+        },
+    }
+}
 
 pub const LastError = struct {
     pub fn get() []const u8 {

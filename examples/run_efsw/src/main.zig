@@ -37,28 +37,28 @@ pub fn main() !void {
     _ = try svr.receiveMessage();
 }
 
-fn notifyAdd(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyAdd(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Added/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyDelete(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyDelete(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Removed/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyModified(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyModified(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Modified/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyMoved(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) void {
+fn notifyMoved(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
