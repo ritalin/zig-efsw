@@ -17,6 +17,7 @@ pub fn main() !void {
             .on_delete = notifyDelete,
             .on_modified = notifyModified,
             .on_renamed = notifyMoved,
+            .on_error = notifyWatchError,
             .recursive = true,
         }
     )
@@ -63,4 +64,11 @@ fn notifyMoved(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8
     _ = user_data;
 
     std.debug.print("Renamed/ id: {}, dir: {s}, name: {s}, name(old: {s}\n", .{id, dir, basename, old_name});
+}
+
+fn notifyWatchError(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, action_tag: efsw.Watcher.Action, err: anyerror, user_data: ?*anyopaque) !void {
+    _ = watcher;
+    _ = user_data;
+
+    std.debug.print("Error/id: {}, error: {s}, action: {s}\n", .{id, @errorName(err), @tagName(action_tag)});
 }

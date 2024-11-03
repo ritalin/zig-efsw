@@ -53,15 +53,12 @@ const efsw = @import("efsw");
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
-    // Instanciate watcher
-    // If you wat to use a generic implementation, you can specify true for second arg.
     var watcher = try efsw.Watcher.init(allocator, false);
     defer watcher.deinit();
 
     const root_dir = try std.fs.cwd().realpathAlloc(allocator, "./zig-out");
     defer allocator.free(root_dir);
 
-    // Register a watching directory
     _ = watcher.addWatch(
         root_dir,
         .{
@@ -69,6 +66,7 @@ pub fn main() !void {
             .on_delete = notifyDelete,
             .on_modified = notifyModified,
             .on_renamed = notifyMoved,
+            .on_error = notifyWatchError,
             .recursive = true,
         }
     )
@@ -76,10 +74,8 @@ pub fn main() !void {
         std.debug.print("{s}", .{efsw.Watcher.LastError.get()});
     };
 
-    // Start watch-session
     watcher.start();
 
-    // This is hack for a infinite loop
     var svr = try std.zig.Server.init(.{
         .gpa = allocator,
         .in = std.io.getStdIn(),
@@ -91,31 +87,38 @@ pub fn main() !void {
     _ = try svr.receiveMessage();
 }
 
-fn notifyAdd(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyAdd(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Added/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyDelete(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyDelete(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Removed/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyModified(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) void {
+fn notifyModified(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Modified/ id: {}, dir: {s}, name: {s}\n", .{id, dir, basename});
 }
 
-fn notifyMoved(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) void {
+fn notifyMoved(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, dir: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) !void {
     _ = watcher;
     _ = user_data;
 
     std.debug.print("Renamed/ id: {}, dir: {s}, name: {s}, name(old: {s}\n", .{id, dir, basename, old_name});
+}
+
+fn notifyWatchError(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, action_tag: efsw.Watcher.Action, err: anyerror, user_data: ?*anyopaque) !void {
+    _ = watcher;
+    _ = user_data;
+
+    std.debug.print("Error/id: {}, error: {s}, action: {s}\n", .{id, @errorName(err), @tagName(action_tag)});
 }
 ```

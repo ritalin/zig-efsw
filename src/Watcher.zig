@@ -15,7 +15,7 @@ pub const Action = enum(c_uint) {
 pub const WatchId = c.efsw_watchid;
 pub const WatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) anyerror!void;
 pub const MovedWatchCallback = *const fn (watcher: *Self, watch_id: WatchId, dir_path: []const u8, basename: []const u8, old_name: []const u8, user_data: ?*anyopaque) anyerror!void;
-pub const ErrorCallback = *const fn (watcher: *Self, watch_id: WatchId, action_tag: Action, error_tag: anyerror) anyerror!void;
+pub const ErrorCallback = *const fn (watcher: *Self, watch_id: WatchId, action_tag: Action, error_tag: anyerror, user_data: ?*anyopaque) anyerror!void;
 
 arena: *std.heap.ArenaAllocator,
 instance: c.efsw_watcher,
@@ -242,7 +242,7 @@ fn notifyChanged(
     catch |err| {
         handle_error: {
             if (context.on_error) |f| {
-                f(context.watcher, watch_id, action_tag, err) catch break:handle_error;
+                f(context.watcher, watch_id, action_tag, err, context.user_data) catch break:handle_error;
 
                 return;
             }
