@@ -1,4 +1,0 @@
-[submodule "vendor/efsw"]
-	path = vendor/efsw
-	url = https://github.com/ritalin/efsw.git
-    branch = fix_fsevent_twice_temporally

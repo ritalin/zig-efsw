@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) !void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const dep_efsw_source = b.dependency("efsw_source", .{});
+
     const lib_efsw_core = b.addStaticLibrary(.{
         .name = "efsw_core",
         // In this case the main source file is merely a path, however, in more
@@ -24,10 +26,12 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    lib_efsw_core.addIncludePath(b.path("./vendor/efsw/include"));
-    lib_efsw_core.addIncludePath(b.path("./vendor/efsw/src"));
+    const efsw_source_root = dep_efsw_source.path("src/efsw");
+
+    lib_efsw_core.addIncludePath(dep_efsw_source.path("include"));
+    lib_efsw_core.addIncludePath(dep_efsw_source.path("src"));
     lib_efsw_core.addCSourceFiles(.{
-        .root = b.path("./vendor/efsw/src/efsw"),
+        .root = efsw_source_root,
         .files = &.{
             "Debug.cpp",
             "DirectorySnapshot.cpp",
@@ -51,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     lib_efsw_core.addCSourceFiles(.{
-        .root = b.path("./vendor/efsw/src/efsw"),
+        .root = efsw_source_root,
         .files = switch (target.result.os.tag) {
             .windows => &.{
                 "platform/win/FileSystemImpl.cpp",
@@ -69,7 +73,7 @@ pub fn build(b: *std.Build) !void {
         .flags = &.{"-std=c++20"},
     });
     lib_efsw_core.addCSourceFiles(.{
-        .root = b.path("./vendor/efsw/src/efsw"),
+        .root = efsw_source_root,
         .files = switch (target.result.os.tag) {
             .macos => &.{
 		        "FileWatcherFSEvents.cpp",
@@ -104,7 +108,7 @@ pub fn build(b: *std.Build) !void {
 
     lib_efsw_core.linkLibC();
     lib_efsw_core.linkLibCpp();
-    lib_efsw_core.installHeader(b.path("./vendor/efsw/include/efsw/efsw.h"), "efsw/efsw.h");
+    lib_efsw_core.installHeader(dep_efsw_source.path("include/efsw/efsw.h"), "efsw/efsw.h");
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when

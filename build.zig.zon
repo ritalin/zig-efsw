@@ -51,6 +51,10 @@
         //    // actually used.
         //    .lazy = false,
         //},
+        .efsw_source = .{
+            .url = "git+https://github.com/ritalin/efsw.git#fix_fsevent_twice_temporally",
+            .hash = "122081cc8c00593b7453b7485a2b770ef5a8b8c5056c19f5f9b08d3ad0f202319646"
+        },
     },
 
     // Specifies the set of files and directories that are included in this package.
