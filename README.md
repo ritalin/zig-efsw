@@ -17,31 +17,11 @@ This package has tested on MacOS (Ventura) only.
 
 ## Installation
 
-This package is depend on `efsw` as submodule.
-So you can't use `zig fetch` command.
-You need to add a clonining the repository.
-
 ```
-cd $YOUR_REPOSITORY
-git clone --recursive https://github.com/ritalin/zig-efsw $DEST_DIR
+zig fetch --save=zig_efsw https://github.com/ritalin/zig-efsw
 ```
 
-Then, add a dependency to `build.zig.zon`.
-
-build.zig.zon:
-```zig
-.{
-    // (snip)
-    .dependencies = .{
-        .zig_efsw = .{
-            // $DEST_DIR is a cloned destination
-            .path = $DEST_DIR
-        },
-    },
-}
-```
-
-Finally, add to `build.zig`
+Then, add to `build.zig`
 
 build.zig:
 ```zig
