@@ -67,9 +67,19 @@ pub const AddWatchOptions = struct {
     recursive: bool = false,
     win_buffer_size: ?c_int = null,
     win_notify_filter: ?c_int = null,
-    mac_modified_filter: ?c_int = null,
+    mac_modified_exclude_filter: MacModifiedExcludeFilters = .{},
     user_data: ?*anyopaque = null,
 };
+
+const MacModifiedFilterFlag = enum(u16) {
+    // kFSEventStreamEventFlagItemFinderInfoMod
+    finder_info = 0x2000,
+    // kFSEventStreamEventFlagItemModified
+    item = 0x1000,
+    // kFSEventStreamEventFlagItemInodeMetaMod
+    inode = 0x0400,
+};
+pub const MacModifiedExcludeFilters = std.enums.EnumFieldStruct(MacModifiedFilterFlag, bool, false);
 
 /// Add a directory watch
 pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror!WatchId {
@@ -99,7 +109,22 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
             .recursive = options.recursive,
             .win_buffer_size = options.win_buffer_size,
             .win_notify_filter = options.win_notify_filter,
-            .mac_modified_filter = options.mac_modified_filter,
+            .mac_modified_filter = filter: {
+                switch (builtin.target.os.tag) {
+                    inline .macos => {
+                        var mask: c_int = 0;
+                        var all: c_int = 0;
+                        inline for (std.meta.fields(MacModifiedFilterFlag)) |field| {
+                            if (@field(options.mac_modified_exclude_filter, field.name)) {
+                                mask += field.value;
+                            }
+                            all += field.value;
+                        }
+                        break:filter if (mask > 0) all - mask else null;
+                    },
+                    inline else => { break:filter null; }
+                }
+            }
         }
     );
     try self.watch_ids.put(context.dir, id);
@@ -108,30 +133,31 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
     return id;
 }
 
-const Options = struct {
-    recursive: bool = false,
-	/// For Windows, the default buffer size of 63*1024 bytes sometimes is not enough and
-	/// file system events may be dropped. For that, using a different (bigger) buffer size
-	/// can be defined here, but note that this does not work for network drives,
-	/// because a buffer larger than 64K will fail the folder being watched, see
-	/// http://msdn.microsoft.com/en-us/library/windows/desktop/aa365465(v=vs.85).aspx)
-    win_buffer_size: ?c_int = null,
-	/// For Windows, per default all events are captured but we might only be interested
-	/// in a subset; the value of the option should be set to a bitwise or'ed set of
-	/// FILE_NOTIFY_CHANGE_* flags.
-    win_notify_filter: ?c_int = null,
-	/// For macOS (FSEvents backend), per default all modified event types are capture but we might
-	// only be interested in a subset; the value of the option should be set to a set of bitwise
-	// from:
-	// kFSEventStreamEventFlagItemFinderInfoMod
-	// kFSEventStreamEventFlagItemModified
-	// kFSEventStreamEventFlagItemInodeMetaMod
-	// Default configuration will set the 3 flags
-	mac_modified_filter: ?c_int = null,
-};
-
 /// Add a directory watch (low layer)
-pub fn addWatchInternal(self: *Self, directory: [:0]const u8, callback: c.efsw_pfn_fileaction_callback, context: ?*anyopaque, options: Options) AddWatchError!WatchId {
+pub fn addWatchInternal(
+    self: *Self, directory: [:0]const u8, callback: c.efsw_pfn_fileaction_callback, context: ?*anyopaque, 
+    options: struct {
+        recursive: bool = false,
+        /// For Windows, the default buffer size of 63*1024 bytes sometimes is not enough and
+        /// file system events may be dropped. For that, using a different (bigger) buffer size
+        /// can be defined here, but note that this does not work for network drives,
+        /// because a buffer larger than 64K will fail the folder being watched, see
+        /// http://msdn.microsoft.com/en-us/library/windows/desktop/aa365465(v=vs.85).aspx)
+        win_buffer_size: ?c_int,
+        /// For Windows, per default all events are captured but we might only be interested
+        /// in a subset; the value of the option should be set to a bitwise or'ed set of
+        /// FILE_NOTIFY_CHANGE_* flags.
+        win_notify_filter: ?c_int,
+        /// For macOS (FSEvents backend), per default all modified event types are capture but we might
+        // only be interested in a subset; the value of the option should be set to a set of bitwise
+        // from:
+        // kFSEventStreamEventFlagItemFinderInfoMod
+        // kFSEventStreamEventFlagItemModified
+        // kFSEventStreamEventFlagItemInodeMetaMod
+        // Default configuration will set the 3 flags
+        mac_modified_filter: ?c_int,
+    }) AddWatchError!WatchId 
+{
     var raw_options: [2]c.efsw_watcher_option = undefined;
     var options_count: usize = 0;
 
@@ -140,15 +166,15 @@ pub fn addWatchInternal(self: *Self, directory: [:0]const u8, callback: c.efsw_p
             defer options_count += 1;
             raw_options[options_count] = .{ .option = c.EFSW_OPT_WIN_BUFFER_SIZE, .value = win_buffer_size };
         }
-        if (options.win_notify_filter) |win_notify_filter| {
+        if (options.win_notify_filter) |filter| {
             defer options_count += 1;
-            raw_options[options_count] = .{ .option = c.EFSW_OPT_WIN_NOTIFY_FILTER, .value = win_notify_filter };
+            raw_options[options_count] = .{ .option = c.EFSW_OPT_WIN_NOTIFY_FILTER, .value = filter };
         }
     }
     else if (comptime builtin.os.tag == .macos) {
-        if (options.mac_modified_filter) |mac_modified_filter| {
+        if (options.mac_modified_filter) |filter| {
             defer options_count += 1;
-            raw_options[options_count] = .{ .option = c.EFSW_OPT_MAC_MODIFIED_FILTER, .value = mac_modified_filter };
+            raw_options[options_count] = .{ .option = c.EFSW_OPT_MAC_MODIFIED_FILTER, .value = filter };
         }
     }
 
@@ -276,6 +302,7 @@ fn notifyChangedInternal(
 {
     const dir_name = std.mem.span(dir_sentinel);
     const basename = std.mem.span(filename_sentinel);
+    std.debug.print("NOTIFY Action/{s}\n", .{@tagName(action_tag)});
 
     switch (action_tag) {
         .Add => {
@@ -427,9 +454,11 @@ test "watch create/edit/delete file" {
         .on_add = notifyEntryAdd,
         .on_modified = notifyEntryMod,
         .on_delete = notifyEntryDel,
+        .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
         .user_data = context,
     });
     watcher.start();
+    std.debug.print("C\n", .{});
 
     context.state = .add;
     var file = try tmp_dir.dir.createFile("new_file", .{});
@@ -447,6 +476,7 @@ test "watch create/edit/delete file" {
         try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
         break:validate;
     }
+    std.debug.print("M\n", .{});
 
     context.state = .mod;
     try file.writeAll("Hello world\n");
@@ -467,6 +497,7 @@ test "watch create/edit/delete file" {
         try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
         break:validate;
     }
+    std.debug.print("D\n", .{});
 
     context.state = .del;
     try tmp_dir.dir.deleteFile("new_file");
@@ -506,6 +537,7 @@ test "watch create/rename file" {
         .on_add = notifyEntryAdd,
         .on_renamed = notifyEntryRename,
         .on_delete = notifyEntryDel,
+        .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
         .user_data = context,
     });
     watcher.start();

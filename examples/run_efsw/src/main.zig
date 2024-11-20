@@ -18,6 +18,7 @@ pub fn main() !void {
             .on_modified = notifyModified,
             .on_renamed = notifyMoved,
             .on_error = notifyWatchError,
+            .mac_modified_exclude_filter = .{.finder_info = true, .inode = true},
             .recursive = true,
         }
     )
