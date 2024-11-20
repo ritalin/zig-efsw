@@ -337,6 +337,7 @@ const TestContext = struct {
     pub fn notifyLifecycle(context: *TestContext, kind: std.meta.FieldType(QueueItem, .kind), dir_path: []const u8, basename: []const u8, v: usize) !void {
         if (context.state != kind) return;
 
+        std.debug.print("** NOTIFY(L)/ kind: {s}, dir: {s}, name: {s}\n", .{@tagName(kind), dir_path, basename});
         const allocator = context.arena.allocator();
 
         rec_result: {
@@ -356,6 +357,7 @@ const TestContext = struct {
     pub fn notifyRename(context: *TestContext, dir_path: []const u8, basename: []const u8, old_name: []const u8) !void {
         if (context.state != .mov) return;
 
+        std.debug.print("** NOTIFY(R)/ dir: {s}, new_name: {s}, old_name: {s}\n", .{dir_path, basename, old_name});
         const allocator = context.arena.allocator();
 
         rec_result: {
@@ -394,6 +396,7 @@ fn notifyEntryRename(_: *Self, _: WatchId, dir_path: []const u8, new_name: []con
 }
 
 test "watch create/edit/delete file" {
+    std.debug.print("[watch create/edit/delete file]\n", .{});
     const allocator = std.testing.allocator;
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -473,6 +476,7 @@ test "watch create/edit/delete file" {
 }
 
 test "watch create/rename file" {
+    std.debug.print("[watch create/rename file]\n", .{});
     const allocator = std.testing.allocator;
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
