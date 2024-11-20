@@ -67,6 +67,7 @@ pub const AddWatchOptions = struct {
     recursive: bool = false,
     win_buffer_size: ?c_int = null,
     win_notify_filter: ?c_int = null,
+    mac_modified_filter: ?c_int = null,
     user_data: ?*anyopaque = null,
 };
 
@@ -98,6 +99,7 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
             .recursive = options.recursive,
             .win_buffer_size = options.win_buffer_size,
             .win_notify_filter = options.win_notify_filter,
+            .mac_modified_filter = options.mac_modified_filter,
         }
     );
     try self.watch_ids.put(context.dir, id);
