@@ -121,4 +121,20 @@ pub fn build(b: *std.Build) !void {
     });
     mod_efsw.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ b.install_path, "include" }) });
     mod_efsw.linkLibrary(lib_efsw_core);
+
+    const dep_queue = b.lazyDependency("concurrent_queue", .{});
+
+    const test_efsw = b.addTest(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    test_efsw.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ b.install_path, "include" }) });
+    test_efsw.linkLibrary(lib_efsw_core);
+    test_efsw.root_module.addImport("concurrent_queue", dep_queue.?.module("concurrent_queue"));
+
+    const run_lib_unit_tests = b.addRunArtifact(test_efsw);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_lib_unit_tests.step);
+    test_step.dependOn(&b.addInstallArtifact(test_efsw, .{.dest_sub_path =  "../test/efsw_test"}).step);
 }

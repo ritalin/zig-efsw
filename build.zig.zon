@@ -51,9 +51,13 @@
         //    // actually used.
         //    .lazy = false,
         //},
-        .efsw_source = .{
-            .url = "git+https://github.com/ritalin/efsw.git#fix_fsevent_twice_temporally",
-            .hash = "122081cc8c00593b7453b7485a2b770ef5a8b8c5056c19f5f9b08d3ad0f202319646"
+        .efsw_source = .{ 
+            .url = "git+https://github.com/SpartanJ/efsw", 
+            .hash = "12208c0d6b1ebd6d16e75fe5adebe1c0d1252b825b35aeed7a0faaf567ee12dad5d5" 
+        },
+        .concurrent_queue = .{
+            .url = "https://github.com/ritalin/zig-concurrent-queue/archive/refs/heads/main.tar.gz",
+            .hash = "1220dd7a74aaaa6893855e8ae4a62c698b9000d1d60b1d886f32a0a31ab01f8812fa",
         },
     },
 
