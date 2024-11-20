@@ -302,7 +302,6 @@ fn notifyChangedInternal(
 {
     const dir_name = std.mem.span(dir_sentinel);
     const basename = std.mem.span(filename_sentinel);
-    std.debug.print("NOTIFY Action/{s}\n", .{@tagName(action_tag)});
 
     switch (action_tag) {
         .Add => {
@@ -458,7 +457,6 @@ test "watch create/edit/delete file" {
         .user_data = context,
     });
     watcher.start();
-    std.debug.print("C\n", .{});
 
     context.state = .add;
     var file = try tmp_dir.dir.createFile("new_file", .{});
@@ -476,7 +474,6 @@ test "watch create/edit/delete file" {
         try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
         break:validate;
     }
-    std.debug.print("M\n", .{});
 
     context.state = .mod;
     try file.writeAll("Hello world\n");
@@ -497,7 +494,6 @@ test "watch create/edit/delete file" {
         try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
         break:validate;
     }
-    std.debug.print("D\n", .{});
 
     context.state = .del;
     try tmp_dir.dir.deleteFile("new_file");
