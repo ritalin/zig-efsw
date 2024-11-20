@@ -6,11 +6,6 @@ efsw: Entropia File System Watcher (https://github.com/SpartanJ/efsw) wrapper fo
 This package is wrapping it by Zig language.
 This package has tested on MacOS (Ventura) only.
 
-> [!WARNING]
-> Currenly, modifying a file content led to notify twice on MacOS FSEvent (https://github.com/SpartanJ/efsw/issues/186).
-> So this package uses forked `efsw` and notify a file content change only but not metadata change.
-> In the future, I'll revert to the original reposity with modifying this issue.
-
 ## Requirement
 
 * Zig (https://ziglang.org/): version 0.14.0 or latter

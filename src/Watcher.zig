@@ -118,6 +118,14 @@ const Options = struct {
 	/// in a subset; the value of the option should be set to a bitwise or'ed set of
 	/// FILE_NOTIFY_CHANGE_* flags.
     win_notify_filter: ?c_int = null,
+	/// For macOS (FSEvents backend), per default all modified event types are capture but we might
+	// only be interested in a subset; the value of the option should be set to a set of bitwise
+	// from:
+	// kFSEventStreamEventFlagItemFinderInfoMod
+	// kFSEventStreamEventFlagItemModified
+	// kFSEventStreamEventFlagItemInodeMetaMod
+	// Default configuration will set the 3 flags
+	mac_modified_filter: ?c_int = null,
 };
 
 /// Add a directory watch (low layer)
@@ -133,6 +141,12 @@ pub fn addWatchInternal(self: *Self, directory: [:0]const u8, callback: c.efsw_p
         if (options.win_notify_filter) |win_notify_filter| {
             defer options_count += 1;
             raw_options[options_count] = .{ .option = c.EFSW_OPT_WIN_NOTIFY_FILTER, .value = win_notify_filter };
+        }
+    }
+    else if (comptime builtin.os.tag == .macos) {
+        if (options.mac_modified_filter) |mac_modified_filter| {
+            defer options_count += 1;
+            raw_options[options_count] = .{ .option = c.EFSW_OPT_MAC_MODIFIED_FILTER, .value = mac_modified_filter };
         }
     }
 
