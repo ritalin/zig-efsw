@@ -52,7 +52,7 @@
         //    .lazy = false,
         //},
         .efsw_source = .{ 
-            .url = "git+https://github.com/SpartanJ/efsw", 
+            .url = "git+https://github.com/SpartanJ/efsw#9df3c0c5d5c1275adefdd2382b8466cad4f448ba", 
             .hash = "12208c0d6b1ebd6d16e75fe5adebe1c0d1252b825b35aeed7a0faaf567ee12dad5d5" 
         },
         .concurrent_queue = .{

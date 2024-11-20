@@ -18,7 +18,7 @@ This package has tested on MacOS (Ventura) only.
 ## Installation
 
 ```
-zig fetch --save=zig_efsw https://github.com/ritalin/zig-efsw
+zig fetch --save=zig_efsw https://github.com/ritalin/zig-efsw/archive/refs/heads/main.tar.gz
 ```
 
 Then, add to `build.zig`
