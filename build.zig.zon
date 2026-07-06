@@ -1,6 +1,6 @@
 .{
     .name = .zig_efsw,
-    .version = "0.2.0",
+    .version = "0.2.1",
     .fingerprint = 0x63ff42f6432debb5,
     .paths = .{
         "build.zig",
