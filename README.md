@@ -8,12 +8,12 @@ This package has tested on MacOS (Ventura) only.
 
 ## Requirement
 
-* Zig (https://ziglang.org/): version 0.14.0 or latter
+* Zig (https://ziglang.org/): version 0.16.0 or latter
 
 ## Installation
 
 ```
-zig fetch --save=zig_efsw https://github.com/ritalin/zig-efsw/archive/refs/heads/main.tar.gz
+zig fetch --save=zig_efsw git+https://github.com/ritalin/zig-efsw
 ```
 
 Then, add to `build.zig`
@@ -102,3 +102,7 @@ fn notifyWatchError(watcher: *efsw.Watcher, id: efsw.Watcher.WatchId, action_tag
     std.debug.print("Error/id: {}, error: {s}, action: {s}\n", .{id, @errorName(err), @tagName(action_tag)});
 }
 ```
+
+## Credits
+
+- efsw: Entropia File System Watcher (https://github.com/SpartanJ/efsw)
