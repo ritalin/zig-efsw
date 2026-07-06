@@ -79,7 +79,7 @@ const MacModifiedFilterFlag = enum(u16) {
 };
 pub const MacModifiedExcludeFilters = std.enums.EnumFieldStruct(MacModifiedFilterFlag, bool, false);
 
-pub fn isWatchng(self: *const Self, dir: []const u8) bool {
+pub fn isWatching(self: *const Self, dir: []const u8) bool {
     return self.watch_ids.contains(dir);
 }
 
@@ -560,7 +560,7 @@ pub const tests = struct {
         var watcher = try Self.init(allocator, false);
         defer watcher.deinit();
 
-        try std.testing.expectEqual(false, watcher.isWatchng(dir_path));
+        try std.testing.expectEqual(false, watcher.isWatching(dir_path));
 
         _ = try watcher.addWatch(dir_path, .{
             .on_add = notifyEntryAdd,
@@ -570,7 +570,7 @@ pub const tests = struct {
             .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
         });
 
-        try std.testing.expectEqual(true, watcher.isWatchng(dir_path));
+        try std.testing.expectEqual(true, watcher.isWatching(dir_path));
 
         const err = watcher.addWatch(dir_path, .{
             .on_add = notifyEntryAdd,
