@@ -19,12 +19,15 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "run_efsw",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "efsw", .module = dep_efsw.module("efsw")},
+            },
+        }),
     });
-
-    exe.root_module.addImport("efsw", dep_efsw.module("efsw"));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

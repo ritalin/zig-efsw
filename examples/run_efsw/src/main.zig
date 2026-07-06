@@ -1,13 +1,14 @@
 const std = @import("std");
 const efsw = @import("efsw");
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
 
     var watcher = try efsw.Watcher.init(allocator, false);
     defer watcher.deinit();
 
-    const root_dir = try std.fs.cwd().realpathAlloc(allocator, "./zig-out");
+    const root_dir = try std.Io.Dir.cwd().realPathFileAlloc(io, "./zig-out", allocator);
     defer allocator.free(root_dir);
 
     _ = watcher.addWatch(
@@ -28,13 +29,19 @@ pub fn main() !void {
 
     watcher.start();
 
+    var read_buffer: [256]u8 = undefined;
+    var reader = std.Io.File.stdin().reader(io, &read_buffer);
+
+    var write_buffer: [256]u8 = undefined;
+    var writer = std.Io.File.stdout().writer(io, &write_buffer);
+    
+    try writer.interface.writeAll("To exit, press Ctrl+C");
+
     var svr = try std.zig.Server.init(.{
-        .gpa = allocator,
-        .in = std.io.getStdIn(),
-        .out = std.io.getStdOut(),
+        .in = &reader.interface,
+        .out = &writer.interface,
         .zig_version = "<<no version>>\n",
     });
-    defer svr.deinit();
 
     _ = try svr.receiveMessage();
 }
