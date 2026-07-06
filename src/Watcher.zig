@@ -79,6 +79,10 @@ const MacModifiedFilterFlag = enum(u16) {
 };
 pub const MacModifiedExcludeFilters = std.enums.EnumFieldStruct(MacModifiedFilterFlag, bool, false);
 
+pub fn isWatchng(self: *const Self, dir: []const u8) bool {
+    return self.watch_ids.contains(dir);
+}
+
 /// Add a directory watch
 pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror!WatchId {
     if (self.watch_ids.contains(dir)) return error.Repeated;
@@ -542,5 +546,39 @@ pub const tests = struct {
         try testbed.expectFileModifying(tmp_dir.dir, file_name);
         try testbed.expectFileRename(tmp_dir.dir, file_name, renamed_file);
         try testbed.expectFileDeleting(tmp_dir.dir, renamed_file);
+    }
+
+    test "duplicate watch source" {
+        const io = std.testing.io;
+        const allocator = std.testing.allocator;
+        var tmp_dir = std.testing.tmpDir(.{});
+        defer tmp_dir.cleanup();
+
+        const dir_path = try tmp_dir.dir.realPathFileAlloc(io, ".",allocator);
+        defer allocator.free(dir_path);
+
+        var watcher = try Self.init(allocator, false);
+        defer watcher.deinit();
+
+        try std.testing.expectEqual(false, watcher.isWatchng(dir_path));
+
+        _ = try watcher.addWatch(dir_path, .{
+            .on_add = notifyEntryAdd,
+            .on_modified = notifyEntryMod,
+            .on_delete = notifyEntryDel,
+            .on_renamed = notifyEntryRename,
+            .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
+        });
+
+        try std.testing.expectEqual(true, watcher.isWatchng(dir_path));
+
+        const err = watcher.addWatch(dir_path, .{
+            .on_add = notifyEntryAdd,
+            .on_modified = notifyEntryMod,
+            .on_delete = notifyEntryDel,
+            .on_renamed = notifyEntryRename,
+            .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
+        });
+        try std.testing.expectError(error.Repeated, err);
     }
 };
