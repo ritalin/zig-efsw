@@ -1,9 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const c = @cImport({
-    @cInclude("efsw/efsw.h");
-});
+pub const c = @import("c");
 
 pub const Action = enum(c_uint) {
     Add = c.EFSW_ADD,
@@ -185,7 +183,8 @@ pub fn addWatchInternal(
         return handleErrUnion(c.efsw_addwatch_withoptions(
             self.instance, directory.ptr, callback, @intFromBool(options.recursive), 
             raw_options[0..options_count].ptr, @intCast(options_count), 
-            context
+            context,
+            null
         ));
     }
 }
@@ -214,7 +213,7 @@ pub const RemoveCriteria = union(enum) {
 pub fn removeWatch(self: *Self, id: WatchId) void {
     if (self.watch_contexts.fetchRemove(id)) |entry| {
         defer entry.value.deinit();
-        defer self.watch_ids.remove(id);
+        defer _ = self.watch_ids.remove(entry.value.dir);
 
         self.removeWatchInternal(.{.by_id = id});
     }
@@ -235,12 +234,12 @@ pub fn start(self: *Self) void {
 
 /// Allow recursive watchers to follow symbolic links to other directories
 pub fn followSymlink(self: *Self, following: bool) void {
-    c.efsw_follow_symlink(self.instance, @intFromBool(following));
+    c.efsw_follow_symlinks(self.instance, @intFromBool(following));
 }
 
 /// If can follow symbolic links to directorioes
 pub fn symlinkFollowed(self: *Self) bool {
-    return c.efsw_follow_symlink_isenabled(self.instance) != 0;
+    return c.efsw_follow_symlinks_isenabled(self.instance) != 0;    
 }
 
 const WatchContext = struct {
@@ -269,7 +268,7 @@ fn notifyChanged(
     filename_sentinel: [*c]const u8,
     action: c_uint,
     old_filename_sentinel: [*c]const u8,
-    user_data: ?*anyopaque) callconv(.C) void 
+    user_data: ?*anyopaque) callconv(.c) void 
 {
     if (user_data == null) return;
     _ = instance;
@@ -321,7 +320,7 @@ fn notifyChangedInternal(
         },
         .Renamed => {
             if (context.on_renamed) |f| {
-                const old_name = std.mem.span(old_filename_sentinel);
+                const old_name: []const u8 = std.mem.span(old_filename_sentinel);
                 try f(context.watcher, watch_id, dir_name, basename, old_name, context.user_data);
             }
         },
@@ -338,261 +337,210 @@ pub const LastError = struct {
     }
 };
 
-const QueueItem = struct {
-    kind: enum {add, mod, del, mov},
-    dir_path: []const u8,
-    sub_path: []const u8,
-    old_name: []const u8,
-    v: usize,
+test "efsw wrapper test" {
+    std.testing.refAllDecls(@This());
+}
+
+pub const tests = struct {
+    const QueueItem = struct {
+        kind: enum {add, mod, del, mov},
+        dir_path: []const u8,
+        sub_path: []const u8,
+        old_name: []const u8,
+
+        pub const deinit = deintQueuetem;
+    };
+
+    fn deintQueuetem(self: *QueueItem, allocator: std.mem.Allocator) void {
+        allocator.free(self.dir_path);
+        allocator.free(self.sub_path);
+        allocator.free(self.old_name);
+    }
+
+    const Queue = std.Io.Queue(QueueItem);
+
+    const TestBed = struct {
+        io: std.Io,
+        allocator: std.mem.Allocator,
+        active_kind: @FieldType(QueueItem, "kind") = .add, // TODO: because FSEvents has coalescing feature
+        buffer: [32]QueueItem = undefined,
+        q: Queue,
+
+        pub fn init(io: std.Io, allocator: std.mem.Allocator) !*TestBed {
+            const self = try allocator.create(TestBed);
+            
+            self.* = .{
+                .io = io,
+                .allocator = allocator,
+                .q = Queue.init(&self.buffer),
+            };
+
+            return self;
+        }
+
+        pub fn deinit(self: *TestBed) void {
+            self.q.close(self.io);
+            self.allocator.destroy(self);
+        }
+
+        pub fn expectFileNew(self: *TestBed, dir: std.Io.Dir, path: []const u8) !void {
+            act: {
+                self.active_kind = .add;
+                const file = try dir.createFile(self.io, path, .{});
+                defer file.close(self.io);
+                break:act;
+            }
+
+            const expect_path = try dir.realPathFileAlloc(self.io, path, self.allocator);
+            defer self.allocator.free(expect_path);
+
+            var item = try self.q.getOne(self.io);
+            defer item.deinit(self.allocator);
+
+            try std.testing.expectEqual(.add, item.kind);
+            try std.testing.expectEqualStrings(std.fs.path.dirname(expect_path).?, item.dir_path);
+            try std.testing.expectEqualStrings(std.fs.path.basename(expect_path), item.sub_path);
+            try std.testing.expectEqualStrings("", item.old_name);
+        }
+
+        pub fn expectFileModifying(self: *TestBed, dir: std.Io.Dir, path: []const u8) !void {
+            act: {
+                self.active_kind = .mod;
+                const file = try dir.openFile(self.io, path, .{.mode = .read_write});
+                defer file.close(self.io);
+
+                var buffer: [64]u8 = undefined;
+                var writer = file.writer(self.io, &buffer);
+                try writer.interface.writeAll("Hello world\n");
+                try writer.interface.flush();
+                break:act;
+            }
+
+            const expect_path = try dir.realPathFileAlloc(self.io, path, self.allocator);
+            defer self.allocator.free(expect_path);
+
+            var item = try self.q.getOne(self.io);
+            defer item.deinit(self.allocator);
+
+            try std.testing.expectEqual(.mod, item.kind);
+            try std.testing.expectEqualStrings(std.fs.path.dirname(expect_path).?, item.dir_path);
+            try std.testing.expectEqualStrings(std.fs.path.basename(expect_path), item.sub_path);
+            try std.testing.expectEqualStrings("", item.old_name);
+        }
+
+        pub fn expectFileRename(self: *TestBed, dir: std.Io.Dir, path: []const u8, new_path: []const u8) !void {
+            const old_path = try dir.realPathFileAlloc(self.io, path, self.allocator);
+            defer self.allocator.free(old_path);
+
+            act: {
+                self.active_kind = .mov;
+                try dir.rename(path, dir, new_path, self.io);
+                break:act;
+            }
+
+            var item = try self.q.getOne(self.io);
+            defer item.deinit(self.allocator);
+
+        }
+
+        pub fn expectFileDeleting(self: *TestBed, dir: std.Io.Dir, path: []const u8) !void {
+            const expect_path = try dir.realPathFileAlloc(self.io, path, self.allocator);
+            defer self.allocator.free(expect_path);
+
+            act: {
+                self.active_kind = .del;
+                try dir.deleteFile(self.io, path);
+                break:act;
+            }
+
+            var item = try self.q.getOne(self.io);
+            defer item.deinit(self.allocator);
+
+            try std.testing.expectEqual(.del, item.kind);
+            try std.testing.expectEqualStrings(std.fs.path.dirname(expect_path).?, item.dir_path);
+            try std.testing.expectEqualStrings(std.fs.path.basename(expect_path), item.sub_path);
+            try std.testing.expectEqualStrings("", item.old_name);
+        }
+
+        fn notifyLifecycle(context: *TestBed, kind: @FieldType(QueueItem, "kind"), dir_path: []const u8, basename: []const u8, _: usize) !void {
+            if (context.active_kind != kind) return;
+
+            rec_result: {
+                try context.q.putOne(context.io, .{
+                    .kind = kind,
+                    .dir_path = try context.allocator.dupe(u8, std.mem.trimEnd(u8, dir_path, std.fs.path.sep_str)),
+                    .sub_path = try context.allocator.dupe(u8, std.mem.trimEnd(u8, basename, std.fs.path.sep_str)),
+                    .old_name = "",
+                });
+                break:rec_result;
+            }
+        }
+
+        fn notifyRename(context: *TestBed, dir_path: []const u8, basename: []const u8, old_name: []const u8) !void {
+            if (context.active_kind != .mov) return;
+
+            rec_result: {
+                try context.q.putOne(context.io, .{
+                    .kind = .mov,
+                    .dir_path = try context.allocator.dupe(u8, std.mem.trimEnd(u8, dir_path, std.fs.path.sep_str)),
+                    .sub_path = try context.allocator.dupe(u8, std.mem.trimEnd(u8, basename, std.fs.path.sep_str)),
+                    .old_name = try context.allocator.dupe(u8, std.mem.trimEnd(u8, old_name, std.fs.path.sep_str)),
+                });
+                break:rec_result;
+            }
+        }
+    };
+
+    fn notifyEntryAdd(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
+        var context: *TestBed = @ptrCast(@alignCast(user_data.?));
+        return context.notifyLifecycle(.add, dir_path, basename, 10);
+    }
+
+    fn notifyEntryMod(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
+        var context: *TestBed = @ptrCast(@alignCast(user_data.?));
+        return context.notifyLifecycle(.mod, dir_path, basename, 20);
+    }
+
+    fn notifyEntryDel(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
+        var context: *TestBed = @ptrCast(@alignCast(user_data.?));
+        return context.notifyLifecycle(.del, dir_path, basename, 30);
+    }
+
+    fn notifyEntryRename(_: *Self, _: WatchId, dir_path: []const u8, new_name: []const u8, old_name: []const u8, user_data: ?*anyopaque) !void {
+        var context: *TestBed = @ptrCast(@alignCast(user_data.?));
+        return context.notifyRename(dir_path, new_name, old_name);
+    }
+
+    test "watch create/edit/rename/delete file" {
+        const io = std.testing.io;
+        const allocator = std.testing.allocator;
+        var tmp_dir = std.testing.tmpDir(.{});
+        defer tmp_dir.cleanup();
+
+        const dir_path = try tmp_dir.dir.realPathFileAlloc(io, ".",allocator);
+        defer allocator.free(dir_path);
+
+        var watcher = try Self.init(allocator, false);
+        defer watcher.deinit();
+
+        var testbed = try TestBed.init(io, allocator);
+        defer testbed.deinit();
+
+        _ = try watcher.addWatch(dir_path, .{
+            .on_add = notifyEntryAdd,
+            .on_modified = notifyEntryMod,
+            .on_delete = notifyEntryDel,
+            .on_renamed = notifyEntryRename,
+            .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
+            .user_data = testbed,
+        });
+        watcher.start();
+        
+        const file_name = "new_file";
+        const renamed_file = "renamed_file";
+        try testbed.expectFileNew(tmp_dir.dir, file_name);
+        try testbed.expectFileModifying(tmp_dir.dir, file_name);
+        try testbed.expectFileRename(tmp_dir.dir, file_name, renamed_file);
+        try testbed.expectFileDeleting(tmp_dir.dir, renamed_file);
+    }
 };
-
-const Queue = @import("concurrent_queue").ConcurrentQueue(QueueItem);
-
-const TestContext = struct {
-    arena: *std.heap.ArenaAllocator,
-    cond: std.Thread.ResetEvent = .{},
-    state: std.meta.FieldType(QueueItem, .kind),
-    q: Queue,
-
-    pub fn init(allocator: std.mem.Allocator) !*TestContext {
-        const arena = try allocator.create(std.heap.ArenaAllocator);
-        arena.* = std.heap.ArenaAllocator.init(allocator);
-        const managed_allocator = arena.allocator();
-
-        const self = try managed_allocator.create(TestContext);
-
-        self.* = .{
-            .arena = arena,
-            .q = Queue.init(try Queue.Node.sentinel(managed_allocator)),
-            .state = .add,
-        };
-
-        return self;
-    }
-
-    pub fn deinit(self: *TestContext) void {
-        const arena = self.arena;
-        arena.deinit();
-        arena.child_allocator.destroy(arena);
-    }
-
-    pub fn notifyLifecycle(context: *TestContext, kind: std.meta.FieldType(QueueItem, .kind), dir_path: []const u8, basename: []const u8, v: usize) !void {
-        if (context.state != kind) return;
-
-        const allocator = context.arena.allocator();
-
-        rec_result: {
-            context.q.enqueue(try Queue.Node.init(allocator, .{
-                .kind = kind,
-                .dir_path = try allocator.dupe(u8, std.mem.trimRight(u8, dir_path, std.fs.path.sep_str)),
-                .sub_path = try allocator.dupe(u8, std.mem.trimRight(u8, basename, std.fs.path.sep_str)),
-                .old_name = "",
-                .v = v,
-            }));
-
-            context.cond.set();
-            break:rec_result;
-        }
-    }
-
-    pub fn notifyRename(context: *TestContext, dir_path: []const u8, basename: []const u8, old_name: []const u8) !void {
-        if (context.state != .mov) return;
-
-        const allocator = context.arena.allocator();
-
-        rec_result: {
-            context.q.enqueue(try Queue.Node.init(allocator, .{
-                .kind = .mov,
-                .dir_path = try allocator.dupe(u8, std.mem.trimRight(u8, dir_path, std.fs.path.sep_str)),
-                .sub_path = try allocator.dupe(u8, std.mem.trimRight(u8, basename, std.fs.path.sep_str)),
-                .old_name = try allocator.dupe(u8, std.mem.trimRight(u8, old_name, std.fs.path.sep_str)),
-                .v = 0,
-            }));
-
-            context.cond.set();
-            break:rec_result;
-        }
-    }
-};
-
-fn notifyEntryAdd(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
-    var context: *TestContext = @ptrCast(@alignCast(user_data.?));
-    return context.notifyLifecycle(.add, dir_path, basename, 10);
-}
-
-fn notifyEntryMod(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
-    var context: *TestContext = @ptrCast(@alignCast(user_data.?));
-    return context.notifyLifecycle(.mod, dir_path, basename, 20);
-}
-
-fn notifyEntryDel(_: *Self, _: WatchId, dir_path: []const u8, basename: []const u8, user_data: ?*anyopaque) !void {
-    var context: *TestContext = @ptrCast(@alignCast(user_data.?));
-    return context.notifyLifecycle(.del, dir_path, basename, 30);
-}
-
-fn notifyEntryRename(_: *Self, _: WatchId, dir_path: []const u8, new_name: []const u8, old_name: []const u8, user_data: ?*anyopaque) !void {
-    var context: *TestContext = @ptrCast(@alignCast(user_data.?));
-    return context.notifyRename(dir_path, new_name, old_name);
-}
-
-test "watch create/edit/delete file" {
-    const allocator = std.testing.allocator;
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(dir_path);
-
-    var watcher = try Self.init(allocator, false);
-    defer watcher.deinit();
-
-    var context = try TestContext.init(allocator);
-    defer context.deinit();
-
-    _ = try watcher.addWatch(dir_path, .{
-        .on_add = notifyEntryAdd,
-        .on_modified = notifyEntryMod,
-        .on_delete = notifyEntryDel,
-        .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
-        .user_data = context,
-    });
-    watcher.start();
-
-    context.state = .add;
-    var file = try tmp_dir.dir.createFile("new_file", .{});
-    
-    validate: {
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.add, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
-        break:validate;
-    }
-
-    context.state = .mod;
-    try file.writeAll("Hello world\n");
-    file.close();
-
-    validate: {
-        context.cond.reset();
-
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.mod, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
-        break:validate;
-    }
-
-    context.state = .del;
-    try tmp_dir.dir.deleteFile("new_file");
-
-    validate: {
-        defer context.cond.reset();
-
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.del, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
-        break:validate;
-    }
-}
-
-test "watch create/rename file" {
-    const allocator = std.testing.allocator;
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(dir_path);
-
-    var watcher = try Self.init(allocator, false);
-    defer watcher.deinit();
-
-    var context = try TestContext.init(allocator);
-    defer context.deinit();
-
-    _ = try watcher.addWatch(dir_path, .{
-        .on_add = notifyEntryAdd,
-        .on_renamed = notifyEntryRename,
-        .on_delete = notifyEntryDel,
-        .mac_modified_exclude_filter = .{.inode = true, .finder_info = true},
-        .user_data = context,
-    });
-    watcher.start();
-
-    context.state = .add;
-    var file = try tmp_dir.dir.createFile("new_file", .{});
-    
-    validate: {
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.add, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("new_file", node.?.data.?.sub_path);
-        break:validate;
-    }
-
-    file.close();
-
-    context.state = .mov;
-    try tmp_dir.dir.rename("new_file", "renamed_file");
-
-    validate: {
-        context.cond.reset();
-
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.mov, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("renamed_file", node.?.data.?.sub_path);
-        try std.testing.expectEqualStrings("new_file", node.?.data.?.old_name);
-        break:validate;
-    }
-
-    context.state = .del;
-    try tmp_dir.dir.deleteFile("renamed_file");
-
-    validate: {
-        defer context.cond.reset();
-
-        while (!context.q.hasEntry()) {
-            context.cond.wait();
-        }
-
-        const node = context.q.dequeue();
-        try std.testing.expect(node != null);
-        try std.testing.expect(node.?.data != null);
-        try std.testing.expectEqual(.del, node.?.data.?.kind);
-        try std.testing.expectEqualStrings(dir_path, node.?.data.?.dir_path);
-        try std.testing.expectEqualStrings("renamed_file", node.?.data.?.sub_path);
-        break:validate;
-    }
-}

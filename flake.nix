@@ -14,7 +14,7 @@
                 eval "$(starship init bash)"
             '';
             darwinShellHook = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-                export SDKROOT="$(${pkgs.xcrun}/bin/xcrun --show-sdk-path)"
+                export SDKROOT="$(/usr/bin/xcrun --show-sdk-path)"
             '';
           in {
             devShells.default = pkgs.mkShell {
