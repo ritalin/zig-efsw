@@ -1,6 +1,6 @@
 .{
     .name = .zig_efsw,
-    .version = "0.1.0",
+    .version = "0.2.0",
     .fingerprint = 0x63ff42f6432debb5,
     .paths = .{
         "build.zig",
@@ -13,6 +13,10 @@
         .efsw_source = .{
             .url = "git+https://github.com/SpartanJ/efsw#347397c0e36165326d445379a06105d3c02e1244",
             .hash = "N-V-__8AAJyDBgDf3EkSGBngXJtQ1bQQX4Avv9jczxqvjPLK",
+        },
+        .set_version = .{
+            .url = "git+https://github.com/ritalin/zig-set-version.git#1f3cd71ee0867b1f56c7ae421feddad4f85a55ff",
+            .hash = "zig_set_version-0.4.0-VcSFV3xkAAD0iesHfDhPukAR87ncMWYHeYkUe3ZRRoi1",
         },
     },
 }
