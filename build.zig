@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    @import("set_version").VersionSetterStep.addStep(b);
+    @import("set_version").VersionSetterStep.addStep(b, .{.dep_name = "set_version"});
 
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -90,7 +90,7 @@ pub fn build(b: *std.Build) void {
         },
         .flags = &.{"-std=c++20"},
     });
-    if (optimize == .Debug) {
+    if (optimize == .debug) {
         lib_efsw_core.root_module.addCMacro("DEBUG", "1");
     }
 

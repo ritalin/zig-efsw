@@ -94,7 +94,7 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
         .allocator = allocator,
         .watcher = self,
         .dir = try allocator.dupe(u8, dir),
-        .dir_sentinel = try allocator.dupeZ(u8, dir),
+        .dir_sentinel = try allocator.dupeSentinel(u8, dir, 0),
         .user_data = options.user_data,
         .on_add = options.on_add,
         .on_delete = options.on_delete,
@@ -116,11 +116,12 @@ pub fn addWatch(self: *Self, dir: []const u8, options: AddWatchOptions) anyerror
                     inline .macos => {
                         var mask: c_int = 0;
                         var all: c_int = 0;
-                        inline for (std.meta.fields(MacModifiedFilterFlag)) |field| {
-                            if (@field(options.mac_modified_exclude_filter, field.name)) {
-                                mask += field.value;
+                        const info = @typeInfo(MacModifiedFilterFlag).@"enum";
+                        inline for (info.field_names, info.field_values) |field_name, field_value| {
+                            if (@field(options.mac_modified_exclude_filter, field_name)) {
+                                mask += field_value;
                             }
-                            all += field.value;
+                            all += field_value;
                         }
                         break:filter if (mask > 0) all - mask else null;
                     },
